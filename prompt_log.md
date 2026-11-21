@@ -101,3 +101,22 @@
 - The notification trigger types and the "Done" action API.
 
 It then filled in **SPEC.md** with features, screens and routes, the data model, notification rules (including iOS's 64-pending-notification limit), design tokens, build phases, non-goals, and open questions.
+
+### 14. Making the spec agent-ready
+> "this spec should be sufficient to hand to an agent to build a whole app, make sure the agent won't have to make any assumptions"
+
+**Outcome:** Claude checked npm (found `expo-speech-recognition` 58.0.1 for SDK 58, which resolved an open question) and rewrote SPEC.md so nothing is left to guess:
+- Exact layouts, sizes, fonts, and copy for every screen.
+- TypeScript types and storage keys.
+- Step-by-step parsing rules with keyword lists and test examples.
+- The full notification scheduling algorithm (a 48h window, the 60-notification cap, quiet hours across midnight, escalation messages).
+- The list of template files to delete, the final file structure, and app.json changes.
+- Phase 2 speech details, including keeping the app runnable in Expo Go.
+- Acceptance criteria.
+
+Remaining device-only questions each have a predefined fallback. Claude also added a "Send a test nudge" button in Settings so the demo video can show a notification without waiting an hour.
+
+### 15. GitHub
+> Shared the empty GitHub repo: https://github.com/afphelps-wq/Nudge
+
+**Outcome:** Connected the local project repo to GitHub as `origin` and pushed `main`.
