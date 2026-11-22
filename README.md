@@ -34,7 +34,7 @@ The app is built with Expo SDK 58 and Expo Router, for iOS only.
 ## Check it
 
 ```bash
-npm test             # 207 logic tests (parsing, reminder rules, notification scheduling, storage, app state)
+npm test             # 210 logic tests (parsing, reminder rules, notification scheduling, storage, app state)
 npx tsc --noEmit     # typecheck
 npx expo lint        # lint
 ```
@@ -75,7 +75,7 @@ These are the places where the build goes beyond, or differs from, the letter of
 
 ### What has and has not been verified
 
-- Verified here: typecheck, lint, 207 logic tests, Expo's project check (`npx expo-doctor`), and a full iOS bundle build.
+- Verified here: typecheck, lint, 210 logic tests, Expo's project check (`npx expo-doctor`), and a full iOS bundle build.
 - Also exercised in a desktop browser (the web build, which is not a supported target): app start, typing a reminder, Review, Save with the toast, the list, check-off, Edit, "Mark as not done", the two-task "Pick a time / Not sure" flow, and Settings persisting across reloads.
 - **Not verified, because no iPhone or simulator was available while building:** how the native date picker looks and sizes itself inside the cards, notification delivery and the Done ✓ action, haptics, the SF Symbol icons, and live speech (Phase 2). Please run through the spec's Acceptance Criteria on a phone.
 
@@ -125,6 +125,7 @@ These are the places where the build goes beyond, or differs from, the letter of
 - The test nudge carries `data: { test: true }` rather than `{ reminderId: null }`, because a null is not a valid value in an iOS notification payload.
 - If the schedule is rebuilt during the 5 seconds before a test nudge (for example right after the permission prompt), the test nudge is put back instead of being cancelled.
 - If notifications are off, "Send a test nudge" says so in an alert instead of doing nothing.
+- **Event notifications are scheduled before task nags.** The spec keeps the first 60 notifications by date, which let five nagging tasks use every slot and leave tomorrow's event without a heads-up. Every event notification is now kept first (the earliest 60 if there are more), and task nags fill the remaining slots in date order.
 - A task saved with "nag me now" gets its first notification one interval later, not instantly. That follows from the spec's scheduling steps (anything within 5 seconds of now is dropped).
 - Expo Go prints two warnings about push notifications when the notifications package loads. They do not apply to local notifications and are hidden.
 - In Expo Go, notification permission belongs to Expo Go itself, so "Open Settings" opens Expo Go's settings page.

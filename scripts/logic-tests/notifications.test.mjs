@@ -337,6 +337,126 @@ test('the result is sorted and capped at 60', () => {
   for (const c of candidates) assert.ok(c.date.getTime() > cutoff);
 });
 
+// --- candidates: events before nags under the 60 cap ------------------------------------
+
+/** A reschedule always runs a moment after the change that caused it. */
+const JUST_AFTER = new Date(NOW.getTime() + 50);
+const isNag = (candidate) => candidate.categoryIdentifier === TASK_CATEGORY;
+
+function assertSortedByDate(candidates) {
+  for (let i = 1; i < candidates.length; i += 1) {
+    assert.ok(
+      candidates[i - 1].date.getTime() <= candidates[i].date.getTime(),
+      `candidate ${i} is out of order`
+    );
+  }
+}
+
+test("REVIEW 27: five nagging tasks do not push out tomorrow's event", () => {
+  // Five no-deadline tasks saved just now, default settings (hourly nags, quiet hours on).
+  const tasks = Array.from({ length: 5 }, (_, index) =>
+    task({ id: `t${index}`, text: `Task ${index}` })
+  );
+  const dentist = event({ dueAt: iso(22, 15) }); // 3:00 PM the next day
+
+  // The nags alone fill every slot: 12 per task, the last ones at 8:00 AM after quiet hours.
+  const nagsOnly = buildCandidates(tasks, S, JUST_AFTER);
+  assert.equal(nagsOnly.length, MAX_SCHEDULED);
+  assert.deepEqual(hm(nagsOnly.at(-1).date), [22, 8, 0]);
+
+  const candidates = buildCandidates([...tasks, dentist], S, JUST_AFTER);
+  assert.equal(candidates.length, MAX_SCHEDULED);
+  assertSortedByDate(candidates);
+
+  const headsUp = candidates.filter((c) => c.data.reminderId === 'e1');
+  assert.equal(headsUp.length, 1, "the event's heads-up is scheduled");
+  assert.deepEqual(hm(headsUp[0].date), [22, 14, 30]);
+  assert.equal(headsUp[0].body, 'Starts in 30 min · 3:00 PM');
+
+  // It took the place of one nag: the latest one.
+  assert.equal(candidates.filter(isNag).length, MAX_SCHEDULED - 1);
+  assert.equal(candidates.filter((c) => isNag(c) && c.date.getDate() === 22).length, 4);
+});
+
+test('every event is kept and nags fill the remaining slots in date order', () => {
+  const settings = { ...NO_QUIET, nagIntervalMinutes: 15 };
+  // 120 nags inside the next three hours, all at different minutes.
+  const tasks = Array.from({ length: 10 }, (_, index) =>
+    task({ id: `t${index}`, nagStartAt: iso(21, 10, index) })
+  );
+  const events = [
+    event({ id: 'e-today', dueAt: iso(21, 12) }), // heads-up in the middle of the nags
+    event({ id: 'e-tuesday', dueAt: iso(24, 15) }),
+    event({ id: 'e-far', dueAt: iso(30, 9) }), // long after the last nag
+  ];
+
+  const candidates = buildCandidates([...tasks, ...events], settings, NOW);
+  assert.equal(candidates.length, MAX_SCHEDULED);
+  assertSortedByDate(candidates);
+
+  assert.deepEqual(
+    candidates.filter((c) => !isNag(c)).map((c) => [c.data.reminderId, ...hm(c.date)]),
+    [
+      ['e-today', 21, 11, 30],
+      ['e-tuesday', 24, 14, 30],
+      ['e-far', 30, 8, 30],
+    ]
+  );
+
+  // The nags that are kept are the earliest ones, exactly as if the events were not there.
+  const key = (c) => `${c.data.reminderId}@${c.date.getTime()}`;
+  const nagsOnly = buildCandidates(tasks, settings, NOW);
+  assert.deepEqual(
+    candidates.filter(isNag).map(key),
+    nagsOnly.slice(0, MAX_SCHEDULED - events.length).map(key)
+  );
+});
+
+test('the total never exceeds 60, and more than 60 events keep the earliest 60', () => {
+  // Hourly nags without quiet hours: each task has exactly 12 candidates.
+  const tasksOf = (count) => Array.from({ length: count }, (_, index) => task({ id: `t${index}` }));
+  // One-off events an hour apart from tomorrow 8:00 AM: one candidate each, e0 the earliest.
+  const eventsOf = (count) =>
+    Array.from({ length: count }, (_, index) =>
+      event({ id: `e${index}`, dueAt: new Date(2026, 10, 22, 8 + index).toISOString() })
+    );
+
+  const mixes = [
+    [0, 0],
+    [1, 1],
+    [5, 0],
+    [5, 1],
+    [6, 2],
+    [10, 3],
+    [30, 59],
+    [30, 60],
+    [30, 61],
+    [3, 100],
+  ];
+  for (const [taskCount, eventCount] of mixes) {
+    const label = `${taskCount} tasks + ${eventCount} events`;
+    // Events listed last, so being kept does not depend on their place in the list.
+    const candidates = buildCandidates(
+      [...tasksOf(taskCount), ...eventsOf(eventCount)],
+      NO_QUIET,
+      JUST_AFTER
+    );
+    const keptEvents = candidates.filter((c) => !isNag(c));
+
+    assert.ok(candidates.length <= MAX_SCHEDULED, label);
+    assert.equal(candidates.length, Math.min(MAX_SCHEDULED, eventCount + 12 * taskCount), label);
+    assert.equal(keptEvents.length, Math.min(MAX_SCHEDULED, eventCount), label);
+    assertSortedByDate(candidates);
+  }
+
+  // 70 events and two tasks: the earliest 60 events, in order, and no room for nags.
+  const crowded = buildCandidates([...tasksOf(2), ...eventsOf(70)], NO_QUIET, JUST_AFTER);
+  assert.deepEqual(
+    crowded.map((c) => c.data.reminderId),
+    Array.from({ length: MAX_SCHEDULED }, (_, index) => `e${index}`)
+  );
+});
+
 // --- device-facing API (against the stub) ------------------------------------------------
 
 /**

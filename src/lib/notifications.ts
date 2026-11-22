@@ -261,10 +261,19 @@ function isSchedulable(reminder: Reminder): boolean {
   );
 }
 
+function byDate(a: NotificationCandidate, b: NotificationCandidate): number {
+  return a.date.getTime() - b.date.getTime();
+}
+
 /**
- * SPEC.md "rescheduleAllNotifications" steps 3–4: every candidate for the given
- * reminders, sorted by date, with anything `<= now + 5s` dropped and only the
- * first MAX_SCHEDULED kept.
+ * SPEC.md "rescheduleAllNotifications" steps 3–4: the candidates to schedule for
+ * the given reminders, sorted by date, with anything `<= now + 5s` dropped and
+ * at most MAX_SCHEDULED kept.
+ *
+ * Events come first when choosing what to keep: they are few and time-critical,
+ * and a handful of nagging tasks could otherwise use every slot. Every event
+ * candidate is kept (the earliest MAX_SCHEDULED if there are more), then task
+ * nags fill the remaining slots in date order.
  */
 export function buildCandidates(
   reminders: Reminder[],
@@ -274,21 +283,24 @@ export function buildCandidates(
   const nowMs = now.getTime();
   if (Number.isNaN(nowMs) || !Array.isArray(reminders)) return [];
 
-  const candidates: NotificationCandidate[] = [];
+  const events: NotificationCandidate[] = [];
+  const nags: NotificationCandidate[] = [];
   for (const reminder of reminders) {
     if (!isSchedulable(reminder)) continue;
     if (reminder.type === 'event') {
-      candidates.push(...eventCandidates(reminder, settings, now));
+      events.push(...eventCandidates(reminder, settings, now));
     } else if (reminder.type === 'task') {
-      candidates.push(...taskCandidates(reminder, settings, now));
+      nags.push(...taskCandidates(reminder, settings, now));
     }
   }
 
   const earliestMs = nowMs + MIN_LEAD_MS;
-  return candidates
-    .sort((a, b) => a.date.getTime() - b.date.getTime())
-    .filter((candidate) => candidate.date.getTime() > earliestMs)
-    .slice(0, MAX_SCHEDULED);
+  const upcoming = (candidates: NotificationCandidate[]): NotificationCandidate[] =>
+    candidates.filter((candidate) => candidate.date.getTime() > earliestMs).sort(byDate);
+
+  const keptEvents = upcoming(events).slice(0, MAX_SCHEDULED);
+  const keptNags = upcoming(nags).slice(0, MAX_SCHEDULED - keptEvents.length);
+  return [...keptEvents, ...keptNags].sort(byDate);
 }
 
 // --- device-facing API ---------------------------------------------------------
