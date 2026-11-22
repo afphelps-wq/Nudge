@@ -7,7 +7,7 @@
 import * as chrono from 'chrono-node';
 
 import { defaultNagStart, nextFullHour } from '@/lib/reminders';
-import { matchesRepeat, nextOccurrence, WEEKDAYS, WEEKENDS } from '@/lib/repeat';
+import { alignToRepeat, WEEKDAYS, WEEKENDS } from '@/lib/repeat';
 import type { DraftReminder, ReminderType, Repeat, Settings } from '@/lib/types';
 
 /** Longest capture text the app accepts (the Capture text box uses the same limit). */
@@ -352,17 +352,6 @@ function detectRepeat(part: string): RepeatMatch | null {
   return null;
 }
 
-/**
- * A weekly repeat whose first date falls on a day it does not include
- * ("standup every weekday at 9am" typed on a Saturday) starts on its next
- * matching day instead, at the same time.
- */
-function alignToRepeat(date: Date, repeat: ActiveRepeat): Date {
-  if (repeat.kind !== 'weekly' || matchesRepeat(repeat, date)) return date;
-  const next = nextOccurrence(repeat, date, date);
-  return isValidDate(next) ? next : date;
-}
-
 // --- steps 4 and 5: date, time and deadline words -----------------------------
 
 interface FoundDate {
@@ -548,6 +537,9 @@ function parsePart(part: string, key: string, now: Date, settings: Settings): Dr
       weekdays: [(dueAt ?? pickerPreset).getDay()],
     };
     repeat = active;
+    // A weekly repeat whose first date falls on a day it does not include
+    // ("standup every weekday at 9am" typed on a Saturday) starts on its next
+    // matching day instead, at the same time.
     if (dueAt === null) {
       pickerPreset = alignToRepeat(pickerPreset, active);
     } else {

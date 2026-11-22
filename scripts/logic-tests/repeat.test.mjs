@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import {
   WEEKDAYS,
   WEEKENDS,
+  alignToRepeat,
   matchesRepeat,
   nextOccurrence,
   normalizeRepeat,
@@ -237,6 +238,31 @@ test('weekly: a rule with no usable days behaves like daily instead of looping',
 });
 
 // --- nextOccurrence: robustness -----------------------------------------------
+
+test('alignToRepeat keeps an allowed day and moves any other to the next allowed day', () => {
+  const day = (date, hour = 9, minute = 0) => new Date(2026, 10, date, hour, minute, 0, 0);
+  const weekdays = weekly(...WEEKDAYS);
+  const weekends = weekly(...WEEKENDS);
+
+  // Allowed days come back as the very same Date.
+  const monday = day(23);
+  assert.equal(alignToRepeat(monday, weekdays), monday);
+  const sunday = day(22);
+  assert.equal(alignToRepeat(sunday, weekends), sunday);
+  assert.equal(alignToRepeat(sunday, DAILY), sunday, 'daily allows every day');
+  assert.equal(alignToRepeat(sunday, weekly()), sunday, 'a rule with no usable days is not applied');
+
+  // Other days move forward, never back, and keep the hour and minute.
+  assert.equal(alignToRepeat(day(21, 9, 30), weekdays).getTime(), day(23, 9, 30).getTime());
+  assert.equal(alignToRepeat(day(22, 9, 30), weekdays).getTime(), day(23, 9, 30).getTime());
+  assert.equal(alignToRepeat(day(23, 19, 45), weekends).getTime(), day(28, 19, 45).getTime());
+  assert.equal(alignToRepeat(day(24), weekly(1)).getTime(), day(30).getTime());
+
+  // The given date is not modified, and an invalid one is handed back as it is.
+  assert.equal(sunday.getTime(), day(22).getTime());
+  const invalid = new Date(NaN);
+  assert.equal(alignToRepeat(invalid, weekdays), invalid);
+});
 
 test('nextOccurrence does not modify the dates it is given', () => {
   const due = nov(21, 9, 0, 12, 345);

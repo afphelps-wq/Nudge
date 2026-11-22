@@ -19,6 +19,13 @@ import {
   setupNotifications,
   subscribeToResponses,
 } from '../../src/lib/notifications.ts';
+import { parseCapture } from '../../src/lib/parse.ts';
+import {
+  draftToReminder,
+  reminderSubtitle,
+  repeatForChoice,
+  setDraftRepeat,
+} from '../../src/lib/reminders.ts';
 import { DEFAULT_SETTINGS } from '../../src/lib/types.ts';
 import {
   DEFAULT_ACTION_IDENTIFIER,
@@ -189,6 +196,59 @@ test('a repeating event gets a heads-up for each occurrence in the next 7 days',
     buildCandidates([mondays], S, NOW).map((c) => hm(c.date)),
     [[23, 6, 30]],
     'quiet hours do not apply to events'
+  );
+});
+
+// Nov 2026: 15 = Sun, 21 = Sat, 22 = Sun, 23 = Mon … 27 = Fri.
+const WEEKDAYS_REPEAT = { kind: 'weekly', weekdays: [1, 2, 3, 4, 5] };
+const MON_TO_FRI_AT_830 = [23, 24, 25, 26, 27].map((day) => [day, 8, 30]);
+
+test('REVIEW 24: "tomorrow at 9am" on a Saturday, then Weekdays, starts on Monday', () => {
+  const [parsed] = parseCapture('standup meeting tomorrow at 9am', NOW, S);
+  assert.equal(parsed.type, 'event');
+  assert.equal(parsed.dueAt.getTime(), at(22, 9).getTime(), 'parsed as Sunday 9:00 AM');
+
+  // The Repeat row's "Weekdays" pill.
+  const card = setDraftRepeat(parsed, repeatForChoice('weekdays', parsed.dueAt));
+  assert.deepEqual(card.repeat, WEEKDAYS_REPEAT);
+  assert.equal(card.dueAt.getTime(), at(23, 9).getTime(), 'the date moves to Monday 9:00 AM');
+
+  const saved = draftToReminder(card, NOW, S);
+  assert.equal(saved.dueAt, iso(23, 9));
+  assert.equal(reminderSubtitle(saved, NOW, S), 'Weekdays · 9:00 AM');
+
+  const candidates = buildCandidates([saved], S, NOW);
+  assert.deepEqual(candidates.map((c) => hm(c.date)), MON_TO_FRI_AT_830);
+  assert.ok(
+    candidates.every((c) => c.date.getDay() >= 1 && c.date.getDay() <= 5),
+    'no notification on Sunday (or Saturday)'
+  );
+});
+
+test('safety net: a stored repeating event that is off its days starts on the next allowed day', () => {
+  // Saved before the card kept dates in line: Weekdays, but dueAt is Sunday.
+  const sunday = event({ dueAt: iso(22, 9), repeat: WEEKDAYS_REPEAT });
+  assert.deepEqual(buildCandidates([sunday], S, NOW).map((c) => hm(c.date)), MON_TO_FRI_AT_830);
+
+  // The same when the stray date has already passed.
+  const lastSunday = event({ dueAt: iso(15, 9), repeat: WEEKDAYS_REPEAT });
+  assert.deepEqual(
+    buildCandidates([lastSunday], S, NOW).map((c) => hm(c.date)),
+    MON_TO_FRI_AT_830
+  );
+
+  // A date that is on the rule's days is still the first occurrence.
+  const tuesday = event({ dueAt: iso(24, 9), repeat: WEEKDAYS_REPEAT });
+  assert.deepEqual(
+    buildCandidates([tuesday], S, NOW).map((c) => hm(c.date)),
+    [24, 25, 26, 27].map((day) => [day, 8, 30])
+  );
+
+  // Daily allows every day, so a Sunday start is kept.
+  const dailyFromSunday = event({ dueAt: iso(22, 9), repeat: { kind: 'daily' } });
+  assert.deepEqual(
+    buildCandidates([dailyFromSunday], S, NOW).map((c) => hm(c.date)),
+    [22, 23, 24, 25, 26, 27, 28].map((day) => [day, 8, 30])
   );
 });
 

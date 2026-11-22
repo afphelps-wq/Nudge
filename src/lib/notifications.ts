@@ -11,6 +11,7 @@ import { LogBox } from 'react-native';
 
 import { formatTime, leadLabel, parseHHmm } from '@/lib/format';
 import {
+  alignToRepeat,
   nextOccurrence,
   normalizeRepeat,
   occurrencesUntil,
@@ -195,9 +196,12 @@ function eventCandidates(reminder: Reminder, settings: Settings, now: Date): Not
   if (repeat === null) {
     occurrences = [due];
   } else {
+    // Safety net: a stored `dueAt` on a day the rule does not allow is not an
+    // occurrence, so the series starts on the next allowed day at the same time.
+    const start = alignToRepeat(due, repeat);
     // Occurrences that have already passed produce nothing, so a stale `dueAt`
     // starts at the first one still ahead instead of using up the list's bound.
-    const first = due.getTime() > nowMs ? due : nextOccurrence(repeat, due, now);
+    const first = start.getTime() > nowMs ? start : nextOccurrence(repeat, due, now);
     occurrences = occurrencesUntil(repeat, first, new Date(nowMs + EVENT_WINDOW_MS));
   }
 

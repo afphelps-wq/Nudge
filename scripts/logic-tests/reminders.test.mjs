@@ -322,10 +322,106 @@ test('setDraftDueAt on an event moves a single-day weekly repeat with the date',
     dueAt: at(23, 7),
     repeat: { kind: 'weekly', weekdays: [1, 3] },
   });
-  assert.deepEqual(setDraftDueAt(multi, at(24, 7), NOW, S).repeat, {
-    kind: 'weekly',
-    weekdays: [1, 3],
-  });
+  const movedMulti = setDraftDueAt(multi, at(24, 7), NOW, S);
+  assert.deepEqual(movedMulti.repeat, { kind: 'weekly', weekdays: [1, 3] });
+  assert.equal(
+    movedMulti.dueAt.getTime(),
+    at(25, 7).getTime(),
+    'Tuesday is not in Mon & Wed, so the date moves on to Wednesday'
+  );
+});
+
+// Nov 2026: 21 = Sat, 22 = Sun, 23 = Mon, 24 = Tue, 27 = Fri, 28 = Sat, 29 = Sun, 30 = Mon.
+const WEEKDAYS_REPEAT = { kind: 'weekly', weekdays: [1, 2, 3, 4, 5] };
+const WEEKENDS_REPEAT = { kind: 'weekly', weekdays: [0, 6] };
+
+test('setDraftRepeat moves the date to the next day a weekly repeat allows', () => {
+  const sunday = draft({ type: 'event', dueAt: at(22, 9) });
+
+  const weekdays = setDraftRepeat(sunday, WEEKDAYS_REPEAT);
+  assert.deepEqual(weekdays.repeat, WEEKDAYS_REPEAT);
+  assert.equal(weekdays.dueAt.getTime(), at(23, 9).getTime(), 'Sunday 9:00 -> Monday 9:00');
+  assert.equal(sunday.dueAt.getTime(), at(22, 9).getTime(), 'the input draft is not mutated');
+
+  // A date the repeat already allows stays exactly where it is.
+  const monday = draft({ type: 'event', dueAt: at(23, 9, 30) });
+  assert.equal(setDraftRepeat(monday, WEEKDAYS_REPEAT).dueAt.getTime(), at(23, 9, 30).getTime());
+  assert.equal(setDraftRepeat(sunday, WEEKENDS_REPEAT).dueAt.getTime(), at(22, 9).getTime());
+
+  // The hour and minute are kept when the date moves.
+  const mondayEvening = draft({ type: 'event', dueAt: at(23, 19, 45) });
+  assert.equal(
+    setDraftRepeat(mondayEvening, WEEKENDS_REPEAT).dueAt.getTime(),
+    at(28, 19, 45).getTime(),
+    'Monday 7:45 PM -> Saturday 7:45 PM'
+  );
+
+  // "Weekly" is the weekday of the date itself, and "Never" has no days to miss.
+  const weekly = setDraftRepeat(sunday, repeatForChoice('weekly', sunday.dueAt));
+  assert.deepEqual(weekly.repeat, { kind: 'weekly', weekdays: [0] });
+  assert.equal(weekly.dueAt.getTime(), at(22, 9).getTime());
+  assert.equal(setDraftRepeat(sunday, null).dueAt.getTime(), at(22, 9).getTime());
+});
+
+test('setDraftRepeat with no time picked yet moves the picker preset instead', () => {
+  const asking = draft({ type: 'event', needsTime: true, pickerPreset: at(22, 9) });
+  const weekdays = setDraftRepeat(asking, WEEKDAYS_REPEAT);
+  assert.equal(weekdays.dueAt, null);
+  assert.equal(weekdays.needsTime, true);
+  assert.equal(weekdays.pickerPreset.getTime(), at(23, 9).getTime());
+  assert.equal(asking.pickerPreset.getTime(), at(22, 9).getTime(), 'the input draft is not mutated');
+
+  // Confirming a day the repeat does not allow still ends on an allowed day.
+  const picked = setDraftDueAt(setDraftRepeat(asking, WEEKDAYS_REPEAT), at(28, 9), NOW, S);
+  assert.equal(picked.dueAt.getTime(), at(30, 9).getTime());
+  assert.equal(picked.needsTime, false);
+});
+
+test('setDraftDueAt keeps a repeating event on a day its repeat allows', () => {
+  const standup = draft({ type: 'event', dueAt: at(23, 9), repeat: WEEKDAYS_REPEAT });
+
+  const saturday = setDraftDueAt(standup, at(28, 9), NOW, S);
+  assert.equal(saturday.dueAt.getTime(), at(30, 9).getTime(), 'Saturday 9:00 -> Monday 9:00');
+  assert.deepEqual(saturday.repeat, WEEKDAYS_REPEAT, 'the repeat itself is not changed');
+
+  const sunday = setDraftDueAt(standup, at(29, 14, 30), NOW, S);
+  assert.equal(sunday.dueAt.getTime(), at(30, 14, 30).getTime(), 'the picked time is kept');
+
+  const tuesday = setDraftDueAt(standup, at(24, 8), NOW, S);
+  assert.equal(tuesday.dueAt.getTime(), at(24, 8).getTime(), 'an allowed day is not moved');
+
+  // No repeat: any day is fine.
+  const oneOff = draft({ type: 'event', dueAt: at(23, 9) });
+  assert.equal(setDraftDueAt(oneOff, at(28, 9), NOW, S).dueAt.getTime(), at(28, 9).getTime());
+});
+
+test('Edit: moving a Weekdays event to a Saturday saves the following Monday', () => {
+  const stored = event({ dueAt: iso(23, 9), repeat: WEEKDAYS_REPEAT });
+  const edited = setDraftDueAt(reminderToDraft(stored, NOW), at(28, 9), NOW, S);
+  assert.equal(edited.dueAt.getTime(), at(30, 9).getTime());
+  assert.equal(isDraftValid(edited, NOW), true);
+  assert.deepEqual(draftToPatch(edited, stored, NOW, S), { dueAt: iso(30, 9) });
+});
+
+test('a daily repeat never moves the date', () => {
+  const daily = { kind: 'daily' };
+
+  // Choosing Daily on any day of the week.
+  for (const day of [21, 22, 23, 24, 25, 26, 27]) {
+    const d = setDraftRepeat(draft({ type: 'event', dueAt: at(day, 9) }), daily);
+    assert.deepEqual(d.repeat, daily);
+    assert.equal(d.dueAt.getTime(), at(day, 9).getTime());
+  }
+  const asking = draft({ type: 'event', needsTime: true, pickerPreset: at(22, 9) });
+  assert.equal(setDraftRepeat(asking, daily).pickerPreset.getTime(), at(22, 9).getTime());
+
+  // Changing the date of a Daily event, including to a weekend.
+  const meds = draft({ type: 'event', dueAt: at(23, 21), repeat: daily });
+  for (const day of [28, 29, 30]) {
+    const moved = setDraftDueAt(meds, at(day, 21), NOW, S);
+    assert.equal(moved.dueAt.getTime(), at(day, 21).getTime());
+    assert.deepEqual(moved.repeat, daily);
+  }
 });
 
 test('setDraftNotSure makes a no-deadline task that nags from now', () => {

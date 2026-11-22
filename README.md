@@ -34,7 +34,7 @@ The app is built with Expo SDK 58 and Expo Router, for iOS only.
 ## Check it
 
 ```bash
-npm test             # 199 logic tests (parsing, reminder rules, notification scheduling, storage, app state)
+npm test             # 207 logic tests (parsing, reminder rules, notification scheduling, storage, app state)
 npx tsc --noEmit     # typecheck
 npx expo lint        # lint
 ```
@@ -75,7 +75,7 @@ These are the places where the build goes beyond, or differs from, the letter of
 
 ### What has and has not been verified
 
-- Verified here: typecheck, lint, 199 logic tests, Expo's project check (`npx expo-doctor`), and a full iOS bundle build.
+- Verified here: typecheck, lint, 207 logic tests, Expo's project check (`npx expo-doctor`), and a full iOS bundle build.
 - Also exercised in a desktop browser (the web build, which is not a supported target): app start, typing a reminder, Review, Save with the toast, the list, check-off, Edit, "Mark as not done", the two-task "Pick a time / Not sure" flow, and Settings persisting across reloads.
 - **Not verified, because no iPhone or simulator was available while building:** how the native date picker looks and sizes itself inside the cards, notification delivery and the Done ✓ action, haptics, the SF Symbol icons, and live speech (Phase 2). Please run through the spec's Acceptance Criteria on a phone.
 
@@ -108,6 +108,7 @@ These are the places where the build goes beyond, or differs from, the letter of
 - When a card is asking for a time, tapping the picker's **Done** accepts the time it is showing. Otherwise someone happy with the suggested time would have no way to confirm it.
 - "Start reminding me": if the default in Settings is 2 hours, "Custom" shows as selected, because the spec has no "2 hrs before" pill.
 - Switching a no-deadline task to an Event makes the card ask for a time, since an event needs one.
+- **A repeating event's date is always on a day its repeat allows.** Choosing a weekly repeat that does not include the event's day (for example "Weekdays" on a Sunday event), or moving a repeating event to such a day, moves the date forward to the next allowed day at the same time. The date stays there if the repeat is then set back to "Never". Daily repeats never move the date. Events saved before this rule existed are also not notified on a day their repeat leaves out.
 - Editing a task that is already nagging (for example renaming it) does not restart its nag schedule or reset the escalating messages.
 
 ### Lists and Capture

@@ -15,6 +15,7 @@ import {
   repeatLabel,
 } from '@/lib/format';
 import {
+  alignToRepeat,
   nextOccurrence,
   normalizeRepeat,
   normalizeWeekdays,
@@ -296,7 +297,9 @@ export function setDraftType(
  * A time was chosen in the When picker: sets `dueAt` (seconds zeroed) and clears `needsTime`.
  * Tasks: `nagStartAt` keeps a fixed "N hrs before" choice relative to the new deadline,
  * keeps a custom time (clamped to `[now, dueAt]`), and otherwise falls back to the default rule.
- * Events: a weekly repeat on exactly the old weekday follows the new weekday.
+ * Events: a weekly repeat on exactly the old weekday follows the new weekday. Any other
+ * weekly repeat stays as it is, and a date on a day it does not allow moves forward to
+ * the next day it does, at the same hour and minute.
  */
 export function setDraftDueAt(
   draft: DraftReminder,
@@ -316,7 +319,10 @@ export function setDraftDueAt(
         repeat = { kind: 'weekly', weekdays: [due.getDay()] };
       }
     }
-    return { ...draft, dueAt: due, needsTime: false, nagStartAt: null, repeat };
+    // An event's date is always on a day its repeat allows.
+    const active = normalizeRepeat(repeat);
+    const allowedDue = active === null ? due : alignToRepeat(due, active);
+    return { ...draft, dueAt: allowedDue, needsTime: false, nagStartAt: null, repeat };
   }
 
   const previousDue = validOrNull(draft.dueAt);
@@ -461,9 +467,22 @@ export function repeatForChoice(choice: Exclude<RepeatChoice, 'custom'>, anchor:
   }
 }
 
-/** Sets a (normalised) repeat on an event draft. */
+/**
+ * Sets a (normalised) repeat on an event draft. An event's date is always on a
+ * day its repeat allows: when a weekly repeat does not include the weekday of
+ * `dueAt`, the date moves forward to the next day it does include, at the same
+ * hour and minute. While no time has been picked yet, the picker's preset moves
+ * the same way, so the picker opens on a day the repeat allows.
+ */
 export function setDraftRepeat(draft: DraftReminder, repeat: Repeat): DraftReminder {
-  return { ...draft, repeat: draft.type === 'event' ? normalizeRepeat(repeat) : null };
+  if (draft.type !== 'event') return { ...draft, repeat: null };
+  const next = normalizeRepeat(repeat);
+  if (next === null) return { ...draft, repeat: null };
+  const dueAt = validOrNull(draft.dueAt);
+  if (dueAt !== null) return { ...draft, repeat: next, dueAt: alignToRepeat(dueAt, next) };
+  const preset = validOrNull(draft.pickerPreset);
+  if (preset === null) return { ...draft, repeat: next };
+  return { ...draft, repeat: next, pickerPreset: alignToRepeat(preset, next) };
 }
 
 // --- store reducers (return the SAME array reference when nothing changed) --

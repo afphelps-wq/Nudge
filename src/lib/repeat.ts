@@ -83,6 +83,17 @@ export function nextOccurrence(repeat: ActiveRepeat, dueAt: Date, after: Date): 
 }
 
 /**
+ * `date` itself when the rule allows its day, otherwise the next allowed day at
+ * the same hour and minute. An event's `dueAt` must always be on a day its
+ * repeat allows; a daily rule allows every day, so it never moves the date.
+ */
+export function alignToRepeat(date: Date, repeat: ActiveRepeat): Date {
+  if (matchesRepeat(repeat, date)) return date;
+  const next = nextOccurrence(repeat, date, date);
+  return Number.isNaN(next.getTime()) ? date : next;
+}
+
+/**
  * `dueAt` itself followed by each later occurrence, up to and including `until`.
  * `max` bounds the list so a bad rule can never produce an unbounded result.
  */
