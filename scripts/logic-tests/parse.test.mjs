@@ -324,7 +324,8 @@ test('an event with no date at all asks for a time, preset to the next full hour
 test('a task deadline closer than the default lead starts nagging now', () => {
   const d = single('submit form by 11am');
   assertLocal(d.dueAt, 2026, 11, 21, 11, 0);
-  assert.equal(d.nagStartAt.getTime(), NOW.getTime());
+  // "Now" is stored one minute ahead, so the first nag is not skipped.
+  assert.equal(d.nagStartAt.getTime(), NOW.getTime() + 60_000);
 });
 
 test('the default nag start follows the setting', () => {

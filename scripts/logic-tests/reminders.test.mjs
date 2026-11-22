@@ -16,6 +16,7 @@ import {
   isCompletedToday,
   isDraftValid,
   isOverdue,
+  nagNow,
   newReminderId,
   nextFullHour,
   pickerValue,
@@ -35,6 +36,8 @@ import { DEFAULT_SETTINGS } from '../../src/lib/types.ts';
 // Sat Nov 21 2026, 10:00 AM local — the reference "now" in SPEC.md.
 const NOW = new Date(2026, 10, 21, 10, 0, 0, 0);
 const S = DEFAULT_SETTINGS;
+// "Start nagging now" is stored one minute ahead (10:01), so the first nag is not skipped.
+const NAG_NOW = new Date(NOW.getTime() + 60_000);
 
 const at = (day, hour = 0, minute = 0) => new Date(2026, 10, day, hour, minute, 0, 0);
 const iso = (day, hour = 0, minute = 0) => at(day, hour, minute).toISOString();
@@ -91,10 +94,18 @@ test('nextFullHour is strictly after now', () => {
   assert.equal(nextFullHour(at(21, 23, 30)).getTime(), at(22, 0).getTime());
 });
 
-test('defaultNagStart is the default lead before the deadline, never before now', () => {
+test('nagNow is one minute after now', () => {
+  assert.equal(nagNow(NOW).getTime(), NAG_NOW.getTime());
+  assert.equal(nagNow(NOW).getTime(), at(21, 10, 1).getTime());
+});
+
+test('defaultNagStart is the default lead before the deadline, or "now" when that has passed', () => {
   assert.equal(defaultNagStart(at(21, 17), NOW, S).getTime(), at(21, 14).getTime());
-  assert.equal(defaultNagStart(at(21, 11), NOW, S).getTime(), NOW.getTime());
-  assert.equal(defaultNagStart(null, NOW, S).getTime(), NOW.getTime());
+  assert.equal(defaultNagStart(at(21, 11), NOW, S).getTime(), NAG_NOW.getTime());
+  assert.equal(defaultNagStart(null, NOW, S).getTime(), NAG_NOW.getTime());
+  // A start that is only seconds away counts as "now" too; one further out is kept.
+  assert.equal(defaultNagStart(new Date(2026, 10, 21, 13, 0, 30), NOW, S).getTime(), NAG_NOW.getTime());
+  assert.equal(defaultNagStart(at(21, 13, 2), NOW, S).getTime(), at(21, 10, 2).getTime());
   const sixHours = { ...S, defaultNagStartHours: 6 };
   assert.equal(defaultNagStart(at(22, 9), NOW, sixHours).getTime(), at(22, 3).getTime());
 });
@@ -153,7 +164,7 @@ test('draftToReminder builds an active task and clamps the nag start', () => {
   assert.ok(chosen.id.length > 0);
 
   const inPast = draftToReminder(draft({ dueAt: at(21, 17), nagStartAt: at(21, 8) }), NOW, S);
-  assert.equal(inPast.nagStartAt, NOW.toISOString(), 'a start in the past becomes now');
+  assert.equal(inPast.nagStartAt, NAG_NOW.toISOString(), 'a start in the past becomes "now"');
 
   const afterDue = draftToReminder(draft({ dueAt: at(21, 17), nagStartAt: at(21, 19) }), NOW, S);
   assert.equal(afterDue.nagStartAt, iso(21, 17), 'a start after the deadline becomes the deadline');
@@ -163,10 +174,14 @@ test('draftToReminder builds an active task and clamps the nag start', () => {
 
   const noDeadline = draftToReminder(draft(), NOW, S);
   assert.equal(noDeadline.dueAt, null);
-  assert.equal(noDeadline.nagStartAt, NOW.toISOString());
+  assert.equal(noDeadline.nagStartAt, NAG_NOW.toISOString());
 
   const overdue = draftToReminder(draft({ dueAt: at(20, 9), nagStartAt: at(20, 6) }), NOW, S);
-  assert.equal(overdue.nagStartAt, NOW.toISOString(), 'a deadline in the past nags from now');
+  assert.equal(overdue.nagStartAt, NAG_NOW.toISOString(), 'a deadline in the past nags from "now"');
+
+  // "Not sure" tapped at 10:00, Save tapped at 10:05: "now" means the time of the save.
+  const tappedEarlier = draftToReminder(setDraftNotSure(draft(), NOW), at(21, 10, 5), S);
+  assert.equal(tappedEarlier.nagStartAt, iso(21, 10, 6));
 
   const stray = draftToReminder(draft({ repeat: { kind: 'daily' } }), NOW, S);
   assert.equal(stray.repeat, null, 'tasks never repeat');
@@ -432,7 +447,7 @@ test('setDraftNotSure makes a no-deadline task that nags from now', () => {
   assert.equal(d.type, 'task');
   assert.equal(d.dueAt, null);
   assert.equal(d.needsTime, false);
-  assert.equal(d.nagStartAt.getTime(), NOW.getTime());
+  assert.equal(d.nagStartAt.getTime(), NAG_NOW.getTime());
   assert.equal(d.repeat, null);
 });
 
@@ -472,22 +487,33 @@ test('getNagChoice is derived from the draft', () => {
   assert.equal(getNagChoice(draft({ dueAt: due, nagStartAt: at(21, 11) }), NOW), 6);
   assert.equal(getNagChoice(draft({ dueAt: due, nagStartAt: at(21, 15) }), NOW), 'custom');
   assert.equal(getNagChoice(draft(), NOW), 'now');
+
+  // "Now" is stored one minute ahead and still reads as 'now', also on a screen
+  // clock that is up to 30 seconds behind the clock the draft was built with.
+  const startsNow = draft({ dueAt: due, nagStartAt: nagNow(NOW) });
+  assert.equal(getNagChoice(startsNow, NOW), 'now');
+  assert.equal(getNagChoice(startsNow, new Date(NOW.getTime() - 30_000)), 'now');
+  assert.equal(getNagChoice(startsNow, new Date(NOW.getTime() + 30_000)), 'now');
+  // A start a few minutes out is not "now".
+  assert.equal(getNagChoice(draft({ dueAt: due, nagStartAt: at(21, 10, 5) }), NOW), 'custom');
 });
 
-test('setDraftNagChoice and setDraftNagStart stay inside [now, deadline]', () => {
+test('setDraftNagChoice and setDraftNagStart stay between "now" and the deadline', () => {
   const d = draft({ dueAt: at(21, 17), nagStartAt: at(21, 14) });
   assert.equal(setDraftNagChoice(d, 1, NOW).nagStartAt.getTime(), at(21, 16).getTime());
   assert.equal(setDraftNagChoice(d, 6, NOW).nagStartAt.getTime(), at(21, 11).getTime());
-  assert.equal(setDraftNagChoice(d, 'now', NOW).nagStartAt.getTime(), NOW.getTime());
+  const startNow = setDraftNagChoice(d, 'now', NOW);
+  assert.equal(startNow.nagStartAt.getTime(), NAG_NOW.getTime());
+  assert.equal(getNagChoice(startNow, NOW), 'now');
 
   const soon = draft({ dueAt: at(21, 12), nagStartAt: new Date(NOW) });
   const sixBefore = setDraftNagChoice(soon, 6, NOW);
-  assert.equal(sixBefore.nagStartAt.getTime(), NOW.getTime(), '"6 hrs before" in the past is now');
+  assert.equal(sixBefore.nagStartAt.getTime(), NAG_NOW.getTime(), '"6 hrs before" in the past is "now"');
   assert.equal(getNagChoice(sixBefore, NOW), 'now');
 
   const picked = new Date(2026, 10, 21, 13, 30, 20, 0);
   assert.equal(setDraftNagStart(d, picked, NOW).nagStartAt.getTime(), at(21, 13, 30).getTime());
-  assert.equal(setDraftNagStart(d, at(21, 8), NOW).nagStartAt.getTime(), NOW.getTime());
+  assert.equal(setDraftNagStart(d, at(21, 8), NOW).nagStartAt.getTime(), NAG_NOW.getTime());
   assert.equal(setDraftNagStart(d, at(21, 20), NOW).nagStartAt.getTime(), at(21, 17).getTime());
 });
 
@@ -547,10 +573,18 @@ test('applyToggleDone un-completes, restarting a task nag from now', () => {
   const [active] = applyToggleDone([done], 't1', NOW);
   assert.equal(active.status, 'active');
   assert.equal(active.completedAt, null);
-  assert.equal(active.nagStartAt, NOW.toISOString());
+  assert.equal(active.nagStartAt, NAG_NOW.toISOString(), '"now" is stored one minute ahead');
 
   const future = task({ status: 'done', completedAt: iso(21, 9, 30), nagStartAt: iso(21, 14) });
   assert.equal(applyToggleDone([future], 't1', NOW)[0].nagStartAt, iso(21, 14));
+
+  // A start only seconds away would be too close for the first nag to be scheduled.
+  const inSeconds = task({
+    status: 'done',
+    completedAt: iso(21, 9, 30),
+    nagStartAt: new Date(NOW.getTime() + 20_000).toISOString(),
+  });
+  assert.equal(applyToggleDone([inSeconds], 't1', NOW)[0].nagStartAt, NAG_NOW.toISOString());
 });
 
 test('reducers return the same array when nothing changes', () => {

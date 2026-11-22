@@ -21,9 +21,12 @@ import {
 } from '../../src/lib/notifications.ts';
 import { parseCapture } from '../../src/lib/parse.ts';
 import {
+  applyMaintenance,
+  applyToggleDone,
   draftToReminder,
   reminderSubtitle,
   repeatForChoice,
+  setDraftNotSure,
   setDraftRepeat,
 } from '../../src/lib/reminders.ts';
 import { DEFAULT_SETTINGS } from '../../src/lib/types.ts';
@@ -454,6 +457,66 @@ test('the total never exceeds 60, and more than 60 events keep the earliest 60',
   assert.deepEqual(
     crowded.map((c) => c.data.reminderId),
     Array.from({ length: MAX_SCHEDULED }, (_, index) => `e${index}`)
+  );
+});
+
+// --- the first nag after "start nagging now" ---------------------------------------------
+
+const nagSummary = (candidate) => [...hm(candidate.date), candidate.title, candidate.body];
+const LEVEL_0 = ['⏰ Call mom', 'Time to get this done.'];
+const LEVEL_1 = ['Still on your list: Call mom', "Tap Done when it's finished."];
+
+test('REVIEW 26: a "Not sure" task gets its level 0 nag a minute after saving, then level 1', () => {
+  const [parsed] = parseCapture('call mom', NOW, S);
+  const saved = draftToReminder(setDraftNotSure(parsed, NOW), NOW, S);
+  assert.equal(saved.nagStartAt, iso(21, 10, 1), 'nagging starts one minute after the save');
+
+  // The reschedule runs a moment after the save.
+  const candidates = buildCandidates([saved], S, JUST_AFTER);
+  assert.deepEqual(nagSummary(candidates[0]), [21, 10, 1, ...LEVEL_0]);
+  assert.deepEqual(nagSummary(candidates[1]), [21, 11, 1, ...LEVEL_1], 'one interval later');
+  assert.equal(candidates[0].categoryIdentifier, TASK_CATEGORY);
+
+  // "Not sure" tapped at 10:00 but Save tapped at 10:05: still a minute after the save.
+  const savedAt = at(21, 10, 5);
+  const savedLater = draftToReminder(setDraftNotSure(parsed, NOW), savedAt, S);
+  const later = buildCandidates([savedLater], S, new Date(savedAt.getTime() + 50));
+  assert.deepEqual(nagSummary(later[0]), [21, 10, 6, ...LEVEL_0]);
+  assert.deepEqual(nagSummary(later[1]), [21, 11, 6, ...LEVEL_1]);
+});
+
+test('REVIEW 26: unchecking a done task starts again with the level 0 nag', () => {
+  const done = task({
+    text: 'Call mom',
+    status: 'done',
+    completedAt: iso(21, 9, 30),
+    nagStartAt: iso(21, 8),
+  });
+  const [active] = applyToggleDone([done], 't1', NOW);
+  assert.equal(active.status, 'active');
+  assert.equal(active.nagStartAt, iso(21, 10, 1));
+
+  const candidates = buildCandidates([active], S, JUST_AFTER);
+  assert.deepEqual(nagSummary(candidates[0]), [21, 10, 1, ...LEVEL_0]);
+  assert.deepEqual(nagSummary(candidates[1]), [21, 11, 1, ...LEVEL_1]);
+});
+
+test('REVIEW 26: reopening the app 10 minutes later does not add an immediate nag', () => {
+  const [parsed] = parseCapture('call mom', NOW, S);
+  const list = [draftToReminder(setDraftNotSure(parsed, NOW), NOW, S)];
+  const reopenedAt = at(21, 10, 10);
+
+  // Coming back to the app runs maintenance, which leaves an active task as it is…
+  assert.equal(applyMaintenance(list, reopenedAt), list);
+
+  // …and rebuilds the schedule. The 10:01 nag has been delivered and is not sent
+  // again: the next one is the level 1 nag at its normal time.
+  const candidates = buildCandidates(list, S, reopenedAt);
+  assert.deepEqual(nagSummary(candidates[0]), [21, 11, 1, ...LEVEL_1]);
+  assert.ok(candidates.every((c) => c.title !== LEVEL_0[0]), 'level 0 is not scheduled again');
+  assert.ok(
+    candidates.every((c) => c.date.getTime() >= at(21, 11, 1).getTime()),
+    'nothing is scheduled before the next regular nag'
   );
 });
 

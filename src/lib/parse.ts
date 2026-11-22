@@ -6,7 +6,7 @@
  */
 import * as chrono from 'chrono-node';
 
-import { defaultNagStart, nextFullHour } from '@/lib/reminders';
+import { defaultNagStart, nagNow, nextFullHour } from '@/lib/reminders';
 import { alignToRepeat, WEEKDAYS, WEEKENDS } from '@/lib/repeat';
 import type { DraftReminder, ReminderType, Repeat, Settings } from '@/lib/types';
 
@@ -550,7 +550,7 @@ function parsePart(part: string, key: string, now: Date, settings: Settings): Dr
   let nagStartAt: Date | null = null;
   if (type === 'task' && dueAt !== null) {
     const start = defaultNagStart(dueAt, now, settings);
-    nagStartAt = isValidDate(start) ? start : new Date(now);
+    nagStartAt = isValidDate(start) ? start : nagNow(now);
   }
 
   // The reinserted day name goes too when chrono did not take it as the date.

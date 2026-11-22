@@ -42,13 +42,31 @@ export function nextFullHour(now: Date): Date {
 }
 
 /**
+ * "Start nagging now" is stored as one minute from now, never as `now` itself.
+ * The notification schedule is rebuilt a moment after the change, and a start
+ * that is already in the past by then would skip the first (level 0) nag and
+ * wait a whole interval for the next one.
+ */
+export const NAG_NOW_LEAD_MS = MINUTE_MS;
+
+/** "Start nagging now", as it is stored: one minute after `now`. */
+export function nagNow(now: Date): Date {
+  return new Date(now.getTime() + NAG_NOW_LEAD_MS);
+}
+
+/** The given time, or "start nagging now" when it is earlier than that. */
+function noEarlierThanNagNow(time: number, now: Date): Date {
+  return new Date(Math.max(now.getTime() + NAG_NOW_LEAD_MS, time));
+}
+
+/**
  * Default "Start reminding me" time for a task:
- * `max(now, dueAt − settings.defaultNagStartHours)`, or `now` when there is no deadline.
+ * `dueAt − settings.defaultNagStartHours`, or "now" (see `nagNow`) when that
+ * has already passed or there is no deadline.
  */
 export function defaultNagStart(dueAt: Date | null, now: Date, settings: Settings): Date {
-  if (dueAt === null) return new Date(now);
-  const start = dueAt.getTime() - settings.defaultNagStartHours * HOUR_MS;
-  return new Date(Math.max(now.getTime(), start));
+  if (dueAt === null) return nagNow(now);
+  return noEarlierThanNagNow(dueAt.getTime() - settings.defaultNagStartHours * HOUR_MS, now);
 }
 
 // ---------------------------------------------------------------------------
@@ -98,10 +116,13 @@ function withoutSeconds(date: Date): Date {
   return copy;
 }
 
-/** `clamp(chosen, now, dueAt ?? ∞)`. A deadline that is not after `now` gives `now`. */
+/**
+ * `chosen`, no later than the deadline and no earlier than "now" (see `nagNow`).
+ * A deadline that has passed, or is less than a minute away, gives "now".
+ */
 function clampNagStart(chosen: Date, now: Date, dueAt: Date | null): Date {
   const upper = dueAt === null ? Infinity : dueAt.getTime();
-  return new Date(Math.max(now.getTime(), Math.min(chosen.getTime(), upper)));
+  return noEarlierThanNagNow(Math.min(chosen.getTime(), upper), now);
 }
 
 /** Trimmed and cut to the title limit, without cutting an emoji (surrogate pair) in half. */
@@ -170,8 +191,9 @@ export function emptyTaskDraft(text: string, now: Date): DraftReminder {
 
 /**
  * Review "On Save": new id, `createdAt = now`, `status = 'active'`, `completedAt = null`.
- * Tasks: `repeat = null`, `nagStartAt = clamp(chosen ?? default, now, dueAt ?? ∞)`
- * (a deadline already in the past gives `now`). Events: `nagStartAt = null`.
+ * Tasks: `repeat = null`, `nagStartAt` = the chosen (or default) start, no later than
+ * the deadline and no earlier than "now" (see `nagNow`), so a start picked a few
+ * minutes before Save was tapped still begins with the first nag. Events: `nagStartAt = null`.
  */
 export function draftToReminder(draft: DraftReminder, now: Date, settings: Settings): Reminder {
   const dueAt = validOrNull(draft.dueAt);
@@ -212,7 +234,7 @@ export function reminderToDraft(reminder: Reminder, now: Date): DraftReminder {
  * Edit "Save changes": only the fields that differ from `original`.
  * - If `type`, `dueAt` or `repeat` changed and the reminder was done, the patch
  *   also sets `status: 'active'` and `completedAt: null`.
- * - A task's `nagStartAt` is re-clamped to `[now, dueAt]` only when the user
+ * - A task's `nagStartAt` is re-clamped (see `clampNagStart`) only when the user
  *   changed it (or changed type/dueAt); an untouched, already-started nag keeps
  *   its original start so escalation is not reset by, say, a rename.
  */
@@ -265,7 +287,7 @@ export function draftToPatch(
 /**
  * Type chip. To event: `nagStartAt = null`, and `needsTime = true` when there is no `dueAt`.
  * To task: `repeat = null`; `nagStartAt` = the default rule when there is a `dueAt`,
- * `now` for a no-deadline task, or `null` while `needsTime` is still true.
+ * "now" (see `nagNow`) for a no-deadline task, or `null` while `needsTime` is still true.
  */
 export function setDraftType(
   draft: DraftReminder,
@@ -296,7 +318,7 @@ export function setDraftType(
 /**
  * A time was chosen in the When picker: sets `dueAt` (seconds zeroed) and clears `needsTime`.
  * Tasks: `nagStartAt` keeps a fixed "N hrs before" choice relative to the new deadline,
- * keeps a custom time (clamped to `[now, dueAt]`), and otherwise falls back to the default rule.
+ * keeps a custom time (clamped, see `clampNagStart`), and otherwise falls back to the default rule.
  * Events: a weekly repeat on exactly the old weekday follows the new weekday. Any other
  * weekly repeat stays as it is, and a date on a day it does not allow moves forward to
  * the next day it does, at the same hour and minute.
@@ -337,20 +359,20 @@ export function setDraftDueAt(
       const wasDefaultOffset = Math.abs(previousNag.getTime() - defaultStart) < MINUTE_MS;
       if (!wasDefaultOffset) nagStartAt = clampNagStart(previousNag, now, due);
     } else if (choice !== 'now') {
-      nagStartAt = new Date(Math.max(now.getTime(), due.getTime() - choice * HOUR_MS));
+      nagStartAt = noEarlierThanNagNow(due.getTime() - choice * HOUR_MS, now);
     }
   }
   return { ...draft, dueAt: due, needsTime: false, nagStartAt };
 }
 
-/** "Not sure — nag me until it's done": task, no deadline, `needsTime = false`, `nagStartAt = now`, no repeat. */
+/** "Not sure — nag me until it's done": task, no deadline, `needsTime = false`, nagging starts "now" (see `nagNow`), no repeat. */
 export function setDraftNotSure(draft: DraftReminder, now: Date): DraftReminder {
   return {
     ...draft,
     type: 'task',
     dueAt: null,
     needsTime: false,
-    nagStartAt: new Date(now),
+    nagStartAt: nagNow(now),
     repeat: null,
   };
 }
@@ -389,16 +411,18 @@ export type NagChoice = 'now' | 1 | 3 | 6 | 'custom';
 
 /**
  * Which "Start reminding me" pill is selected, derived from the draft:
- * 'now' when `nagStartAt <= now` (within a minute), 1/3/6 when it is that many
- * hours before `dueAt` (within a minute), otherwise 'custom'.
+ * 'now' when nagging has started or starts within the next two minutes ("now" is
+ * stored as one minute ahead, see `nagNow`), 1/3/6 when it is that many hours
+ * before `dueAt` (within a minute), otherwise 'custom'.
  */
 export function getNagChoice(draft: DraftReminder, now: Date): NagChoice {
   const dueAt = validOrNull(draft.dueAt);
   const nagStartAt = validOrNull(draft.nagStartAt);
   if (dueAt === null || nagStartAt === null) return 'now';
-  // The minute of slack absorbs the gap between the clock the draft was built
-  // with and the screen's clock, which only ticks every 30 seconds.
-  if (nagStartAt.getTime() - now.getTime() < MINUTE_MS) return 'now';
+  // "Now" is stored one minute ahead. The extra minute of slack absorbs the gap
+  // between the clock the draft was built with and the screen's clock, which
+  // only ticks every 30 seconds.
+  if (nagStartAt.getTime() - now.getTime() < NAG_NOW_LEAD_MS + MINUTE_MS) return 'now';
   for (const hours of NAG_OFFSET_HOURS) {
     const offsetStart = dueAt.getTime() - hours * HOUR_MS;
     if (Math.abs(nagStartAt.getTime() - offsetStart) < MINUTE_MS) return hours;
@@ -406,7 +430,7 @@ export function getNagChoice(draft: DraftReminder, now: Date): NagChoice {
   return 'custom';
 }
 
-/** A fixed pill was tapped. "N hrs before" in the past is stored as `now` (and so shows as 'now'). */
+/** A fixed pill was tapped. "N hrs before" in the past is stored as "now" (see `nagNow`), and so shows as 'now'. */
 export function setDraftNagChoice(
   draft: DraftReminder,
   choice: Exclude<NagChoice, 'custom'>,
@@ -414,12 +438,11 @@ export function setDraftNagChoice(
 ): DraftReminder {
   if (draft.type === 'event') return { ...draft, nagStartAt: null };
   const dueAt = validOrNull(draft.dueAt);
-  if (choice === 'now' || dueAt === null) return { ...draft, nagStartAt: new Date(now) };
-  const start = dueAt.getTime() - choice * HOUR_MS;
-  return { ...draft, nagStartAt: new Date(Math.max(now.getTime(), start)) };
+  if (choice === 'now' || dueAt === null) return { ...draft, nagStartAt: nagNow(now) };
+  return { ...draft, nagStartAt: noEarlierThanNagNow(dueAt.getTime() - choice * HOUR_MS, now) };
 }
 
-/** The Custom picker changed: `nagStartAt` clamped to `[now, dueAt]`, seconds zeroed. */
+/** The Custom picker changed: `nagStartAt` clamped (see `clampNagStart`), seconds zeroed. */
 export function setDraftNagStart(draft: DraftReminder, nagStartAt: Date, now: Date): DraftReminder {
   if (draft.type === 'event') return { ...draft, nagStartAt: null };
   if (!isValidDate(nagStartAt)) return { ...draft };
@@ -503,7 +526,9 @@ function reactivateReminder(reminder: Reminder, now: Date): Reminder {
   const next: Reminder = { ...reminder, status: 'active', completedAt: null };
   if (reminder.type === 'task') {
     const nagStart = isoTime(reminder.nagStartAt);
-    if (nagStart === null || nagStart < now.getTime()) next.nagStartAt = now.toISOString();
+    // Back on the list: nagging starts again "now", unless it was set to start later anyway.
+    const earliest = nagNow(now);
+    if (nagStart === null || nagStart < earliest.getTime()) next.nagStartAt = earliest.toISOString();
   }
   return next;
 }
@@ -518,8 +543,8 @@ function replaceAt(reminders: Reminder[], index: number, next: Reminder): Remind
  * Active → done: a task or non-repeating event gets `status = 'done'`, `completedAt = now`;
  * a repeating event is not marked done, its `dueAt` advances to the next occurrence
  * after the current `dueAt` ("skip this one").
- * Done → active: `status = 'active'`, `completedAt = null`; a task whose `nagStartAt < now`
- * gets `nagStartAt = now`.
+ * Done → active: `status = 'active'`, `completedAt = null`; a task whose nagging had
+ * started, or was about to, starts nagging again "now" (see `nagNow`).
  */
 export function applyToggleDone(reminders: Reminder[], id: string, now: Date): Reminder[] {
   const index = reminders.findIndex((reminder) => reminder.id === id);
