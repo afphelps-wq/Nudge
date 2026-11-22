@@ -93,14 +93,14 @@
 **Outcome:** Claude extracted a palette (cream background, deep teal primary `#2F6F6B`, pastel mint/peach/lavender/yellow cards, coral for recording) and picked a rounded font (Nunito). Tasks get peach cards and events get mint cards.
 
 ### 13. Writing the spec
-> Shared the course SPEC.md template: "use this"
+> Shared the course SPEC.md  with filled in sections: "use this"
 
 **Outcome:** Claude checked the Expo SDK 58 docs before writing. It confirmed:
 - AsyncStorage and the `@expo/ui` date picker work in Expo Go.
 - Expo has no official speech-to-text module, so `expo-speech-recognition` needs a dev build.
 - The notification trigger types and the "Done" action API.
 
-It then filled in **SPEC.md** with features, screens and routes, the data model, notification rules (including iOS's 64-pending-notification limit), design tokens, build phases, non-goals, and open questions.
+It then filled in **SPEC.md** with missing features, screens and routes, the data model, notification rules (including iOS's 64-pending-notification limit), design tokens, build phases, non-goals, and open questions.
 
 ### 14. Making the spec agent-ready
 > "this spec should be sufficient to hand to an agent to build a whole app, make sure the agent won't have to make any assumptions"

@@ -1,65 +1,33 @@
 /**
- * Below are the colors that are used in the app. The colors are defined in the light and dark mode.
- * There are many other ways to style your app. For example, [Nativewind](https://www.nativewind.dev/), [Tamagui](https://tamagui.dev/), [unistyles](https://unistyl.es/), etc.
+ * Nudge design tokens. Light mode only.
+ * Screens and components must use these instead of hard-coded colors or font names.
  */
 
-import '@/global.css';
-
-import { Platform } from 'react-native';
-
 export const Colors = {
-  light: {
-    text: '#000000',
-    background: '#ffffff',
-    backgroundElement: '#F0F0F3',
-    backgroundSelected: '#E0E1E6',
-    textSecondary: '#60646C',
-  },
-  dark: {
-    text: '#ffffff',
-    background: '#000000',
-    backgroundElement: '#212225',
-    backgroundSelected: '#2E3135',
-    textSecondary: '#B0B4BA',
-  },
+  background: '#FBF7EF', // warm cream – all screen backgrounds
+  surface: '#FFFFFF', // cards, inputs, round icon buttons
+  primary: '#2F6F6B', // deep teal – mic (idle), main buttons, selected pills, checkboxes
+  text: '#243B3A', // headings + body
+  textSecondary: '#6F7F7D', // captions, subtitles, placeholders
+  mint: '#D8F0E6', // event cards, toast
+  peach: '#FBD9CC', // task cards
+  lavender: '#E6DFF8', // repeat chip, decorative blob
+  yellow: '#FCEFC0', // date/time chip
+  coral: '#EE8B74', // recording mic, overdue, destructive, badges, pulse rings
+  coralTint: '#FBE3DC', // notifications-off banner
 } as const;
 
-export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;
+export type ColorName = keyof typeof Colors;
 
-export const Fonts = Platform.select({
-  ios: {
-    /** iOS `UIFontDescriptorSystemDesignDefault` */
-    sans: 'system-ui',
-    /** iOS `UIFontDescriptorSystemDesignSerif` */
-    serif: 'ui-serif',
-    /** iOS `UIFontDescriptorSystemDesignRounded` */
-    rounded: 'ui-rounded',
-    /** iOS `UIFontDescriptorSystemDesignMonospaced` */
-    mono: 'ui-monospace',
-  },
-  default: {
-    sans: 'normal',
-    serif: 'serif',
-    rounded: 'normal',
-    mono: 'monospace',
-  },
-  web: {
-    sans: 'var(--font-display)',
-    serif: 'var(--font-serif)',
-    rounded: 'var(--font-rounded)',
-    mono: 'var(--font-mono)',
-  },
-});
-
-export const Spacing = {
-  half: 2,
-  one: 4,
-  two: 8,
-  three: 16,
-  four: 24,
-  five: 32,
-  six: 64,
+/**
+ * Nunito font families, loaded in the root layout with `useFonts` from
+ * `@expo-google-fonts/nunito`. Set `fontFamily` per text; never `fontWeight`.
+ */
+export const Fonts = {
+  regular: 'Nunito_400Regular',
+  semibold: 'Nunito_600SemiBold',
+  bold: 'Nunito_700Bold',
+  extrabold: 'Nunito_800ExtraBold',
 } as const;
 
-export const BottomTabInset = Platform.select({ ios: 50, android: 80 }) ?? 0;
-export const MaxContentWidth = 800;
+export type FontName = keyof typeof Fonts;

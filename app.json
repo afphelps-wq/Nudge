@@ -1,12 +1,12 @@
 {
   "expo": {
-    "name": "temp-app-name",
-    "slug": "temp-app-name",
+    "name": "Nudge",
+    "slug": "nudge",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "tempappname",
-    "userInterfaceStyle": "automatic",
+    "scheme": "nudge",
+    "userInterfaceStyle": "light",
     "ios": {
       "icon": "./assets/expo.icon"
     },
@@ -28,9 +28,22 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#208AEF",
+          "backgroundColor": "#FBF7EF",
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 76
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "enableRemoteNotifications": false
+        }
+      ],
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Nudge uses the microphone so you can speak your reminders.",
+          "speechRecognitionPermission": "Nudge turns your speech into text to create reminders."
         }
       ]
     ],
